@@ -29,7 +29,7 @@ parser.add_argument("-n", "--num_cores", type = int, metavar = "int cores", defa
 parser.add_argument('-o', '--sites_file', nargs="?", type=argparse.FileType('w'), 
 		    help='Optional name of the file to write included loci.')
 
-parser.add_argument('-l', '--positions_file', nargs="?", type=str, 
+parser.add_argument('-l', '--positions_file', type=str, 
 		    help='Optional file of reference position to pass to samtools mpileup.')
 
 parser.add_argument("reference", type=str, help="The indexed reference genome each bam was aligned to")
