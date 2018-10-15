@@ -23,7 +23,7 @@ parser.add_argument("-d", "--depth_variance", type = float, metavar = "dp", defa
 parser.add_argument("-c", "--no_center_scale", action = 'store_true', 
 	            help = "Do not center and scale base weights at each locus.")
 
-parser.add_argument("-n", "--num_cores", type = int, metavar = "int cores", default=0, 
+parser.add_argument("-n", "--num_cores", type = int, metavar = "int cores", default=1, 
 		    help = "Number of cores to use. If multiple cores are not available, do not use flag, or set int cores to zero")
 
 parser.add_argument('-o', '--sites_file', nargs="?", type=argparse.FileType('w'), 
@@ -105,7 +105,6 @@ for outs in geno_pheno_df["outs"]:
 if args.positions_file:
 	cmd = "samtools mpileup -f {0} -l {1} -b bams.txt".format(args.reference, args.positions_file).split()
 else:
-
 	cmd = "samtools mpileup -f {0} -b bams.txt".format(args.reference).split()
 
 
@@ -117,7 +116,7 @@ for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
 	if ref in ["A", "T", "G", "C", "a", "t", "g", "c"]:
 		ind_list = line_list[3:]
 		qc = filter_sites(ind_list)
-		if (qc["ref_prop"] < args.prop_variant or ( 1 - qc["ref_prop"]) > args.prop_variant) or qc["dp_var"] > args.depth_variance:
+		if (qc["ref_prop"] < args.prop_variant or qc["ref_prop"] > ( 1- args.prop_variant)) or qc["dp_var"] > args.depth_variance:
 			quad_channel = list()
 			inputs = list(range(1, len(line_list)-3, 3))
 			result = Parallel(n_jobs = args.num_cores)(delayed(parseread)(ind_list[i], ind_list[i+1], ref) for i in inputs)
