@@ -116,7 +116,7 @@ for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
 	if ref in ["A", "T", "G", "C", "a", "t", "g", "c"]:
 		ind_list = line_list[3:]
 		qc = filter_sites(ind_list)
-		if (qc["ref_prop"] < args.prop_variant or qc["ref_prop"] > ( 1- args.prop_variant)) or qc["dp_var"] > args.depth_variance:
+		if (qc["ref_prop"] < args.prop_variant or ( 1 - qc["ref_prop"]) > args.prop_variant) or qc["dp_var"] > args.depth_variance:
 			quad_channel = list()
 			inputs = list(range(1, len(line_list)-3, 3))
 			result = Parallel(n_jobs = args.num_cores)(delayed(parseread)(ind_list[i], ind_list[i+1], ref) for i in inputs)
