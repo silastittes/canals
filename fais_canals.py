@@ -20,6 +20,9 @@ parser.add_argument("-p", "--prop_variant", type = float, metavar = "prop", defa
 parser.add_argument("-d", "--depth_variance", type = float, metavar = "dp", default=0.0, 
 	            help = "Positive real value to exclude sites with little variation in base counts (less than dp).")
 
+parser.add_argument("-s", "--distance_between_sites", type = float, metavar = "space", default=1,
+                    help = "Positive integer specifying the minimum distance between variant sites to be included.")
+
 parser.add_argument("-c", "--no_center_scale", action = 'store_true', 
 	            help = "Do not center and scale base weights at each locus.")
 
@@ -108,6 +111,7 @@ else:
 	cmd = "samtools mpileup -f {0} -b bams.txt".format(args.reference).split()
 
 
+space_count = 0
 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
 for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
 	line_list = line.strip().split("\t")
@@ -116,8 +120,13 @@ for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
 	if ref in ["A", "T", "G", "C", "a", "t", "g", "c"]:
 		ind_list = line_list[3:]
 		qc = filter_sites(ind_list)
+		
+
 		#check if propotion of reference alleles is between specified user cutoff OR variance in depth in above user cutoff
-		if (  (1 -  args.prop_variant) < qc["ref_prop"] < args.prop_variant) or qc["dp_var"] > args.depth_variance:
+		if space_count >= args.distance_between_sites and \
+		   ((1 -  args.prop_variant) < qc["ref_prop"] < args.prop_variant) or \
+		   qc["dp_var"] > args.depth_variance):
+
 			quad_channel = list()
 			inputs = list(range(1, len(line_list)-3, 3))
 			result = Parallel(n_jobs = args.num_cores)(delayed(parseread)(ind_list[i], ind_list[i+1], ref) for i in inputs)
@@ -144,3 +153,6 @@ for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
 			else:
 				print(pos)
 			
+			space_count = 1
+		else:
+			space_count += 1
