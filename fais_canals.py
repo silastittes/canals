@@ -123,9 +123,7 @@ for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
 		
 
 		#check if propotion of reference alleles is between specified user cutoff OR variance in depth in above user cutoff
-		if space_count >= args.distance_between_sites and \
-		   ((1 -  args.prop_variant) < qc["ref_prop"] < args.prop_variant) or \
-		   qc["dp_var"] > args.depth_variance):
+		if space_count >= args.distance_between_sites and ((1 -  args.prop_variant) < qc["ref_prop"] < args.prop_variant or qc["dp_var"] > args.depth_variance):
 
 			quad_channel = list()
 			inputs = list(range(1, len(line_list)-3, 3))
