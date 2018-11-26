@@ -46,41 +46,55 @@ geno_pheno_df = pd.read_csv(args.pheno_geno_map, sep = "\t")
 geno_pheno_df["bams"].to_csv("bams.txt", sep = "\t", header = False, index = False)
 
 
-def parseread(read_str, qual_str, ref_base):
- 
-	def base_prob(ascii, offset = 35):
-		#ascii = ascii.replace('"','\"').replace("'","\'")
-		return 1 - 1/np.power(10, (ord(ascii) - offset)/10)
+def parse_line(pileup):
+	mp = pileup.strip().split("\t")
+	chrom, pos, ref = mp[0:3] #site data
+	pop_bam = mp[3:]
+	idx = list(range(0,len(pop_bam), 3))
+	site_dict = {"chrom": chrom, "ref": ref, "pos": pos, "pop_bam": pop_bam, "idx":idx}
+	return site_dict
+
+def raw_dp(pop_bam, idx):
+	#set up indices in groups of 3
+	#process read strings
+	dps =  np.array([int(pop_bam[i]) for i in idx])
+	dp_var =  dps.var()
+	return {"dp_var": dp_var, "dps": dps}
+
+def raw_freq(pop_bam, dps, idx):
+	read_list = [pop_bam[i+1] for i in idx]
+	read_str = ' '.join(read_list).replace("*", "")
+	#print(read_str)
+	ref_freq = (read_str.count(",") + read_str.count(".")) / np.sum(dps)
+	return ref_freq
+	#freq_test = (1 - args.ref_freq) <= ref_freq <= args.ref_freq
+        
+
+
+def base_prob(phred, offset = 35):
+	return np.array([1 - 1/np.power(10, (ord(asci) - offset)/10) for asci in phred])
+
+def parse_seq(seq_str, qual_str, ref, prec = 3):
     
-	goods = ["A", "T", "G", "C", "N", "a", "t", "g", "c", "n"]
-	nuc_dict = {"A": 0, "T": 0, "G": 0, "C":0, "N":0}
-	i = 0
-	q = 0
-	while i < len(qual_str):
-		base = read_str[i].replace(",", ref_base).replace(".", ref_base).upper()
-		prob = base_prob(qual_str[q])
-		if base == "^" :
-			i += 1
-		if base in ["+", "-"]:
-			count = int(read_str[i+1])
-			i += count + 1
-		if base in goods:
-			nuc_dict[base] += prob
-			q += 1
-		i += 1
+	seq_str = re.sub('\^.', '', seq_str.replace(".", ref).replace(",", ref).replace("$", ""))
+    
+	broken_seq = re.split('[+-]\d+', seq_str)
+    
+	seq_array =  np.array(list(broken_seq[0] + ''.join(
+	[
+	broken_seq[i][int(re.findall('\d+', seq_str)[i-1]):]
+		for i in list(range(1, len(broken_seq)))
+	]
+	)
+	))
 
-	return list(nuc_dict.values())[0:4]
-
-def filter_sites(site_list):
-	idxs = list(range(0, len(site_list), 3))
-	pop_str = ""
-	dp_list = list()
-	for i in idxs:
-		pop_str += site_list[i+1]
-		dp_list.append(int(site_list[i]))
-	ref_prop = (pop_str.count(".") + pop_str.count(",") + pop_str.count("*")) / len(pop_str)
-	dp_var = np.array(dp_list).std()
-	return {"ref_prop": ref_prop, "dp_var": dp_var}
+	qs = base_prob(qual_str, offset = 35)
+	return [
+		qs[seq_array == "A"].sum().round(prec),
+		qs[seq_array == "T"].sum().round(prec),
+		qs[seq_array == "G"].sum().round(prec),
+		qs[seq_array == "C"].sum().round(prec)
+		]
 
 
 def multiple_replace(dict_rep, text):
@@ -114,40 +128,89 @@ else:
 space_count = 1
 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
 for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
-	line_list = line.strip().split("\t")
-	ref = line_list[2]
-	pos = '\t'.join(line_list[0:2])
-	if ref in ["A", "T", "G", "C", "a", "t", "g", "c"]:
-		ind_list = line_list[3:]
-		qc = filter_sites(ind_list)
-		
-		#check if propotion of reference alleles is between specified user cutoff OR variance in depth in above user cutoff
-		if space_count >= args.distance_between_sites and ((1 -  args.prop_variant) < qc["ref_prop"] < args.prop_variant or qc["dp_var"] > args.depth_variance):
-			quad_channel = list()
-			inputs = list(range(1, len(line_list)-3, 3))
-			result = Parallel(n_jobs = args.num_cores)(delayed(parseread)(ind_list[i], ind_list[i+1], ref) for i in inputs)
-			quad_channel.append(np.asarray(result))
-			quad_channel = np.squeeze(np.asarray(quad_channel))
-			if args.no_center_scale == True:
-				pass
-			else:
-				qsd = quad_channel.std()
-				if qsd == 0: qsd = 1
-				qmn =  quad_channel.mean()
-				quad_channel = (quad_channel - qmn) / qsd
-
-			for idx, arr in enumerate(quad_channel):
-				f = tables.open_file(geno_pheno_df["outs"][idx], mode='a')
-				f.root.data.append(arr.reshape(1, 4))
-				f.close()
 	
-			if args.sites_file:
-				pos_info = "{0}\t{1}\t{2}\n".format(pos, str(qc["ref_prop"]), str(qc["dp_var"]))
-				args.sites_file.write(pos_info)
-				args.sites_file.flush()
+	site_dict = parse_line(line)
+	pop_bam = site_dict["pop_bam"]
+	idx = site_dict["idx"]
+	ref = site_dict["ref"]	
+	dp_res = raw_dp(pop_bam, idx)
+	#print(dp_res)
+	if dp_res["dp_var"] >= 0:
+		freq_res = raw_freq(pop_bam, dp_res["dps"], idx)
+		#print(line.strip())
+		if (1-args.prop_variant) <= freq_res <= args.prop_variant: 
+			print(line.strip())
+			res = Parallel(n_jobs = args.num_cores)(delayed(parse_seq)(pop_bam[i+1], pop_bam[i+2], ref) for i in idx)
+			print(res)
+	
+		#check if propotion of reference alleles is between specified user cutoff OR variance in depth in above user cutoff
+#		if space_count >= args.distance_between_sites and ((1 -  args.prop_variant) < qc["ref_prop"] < args.prop_variant or qc["dp_var"] > args.depth_variance):
+#			quad_channel = list()
+#			inputs = list(range(1, len(line_list)-3, 3))
+#			result = Parallel(n_jobs = args.num_cores)(delayed(parseread)(ind_list[i], ind_list[i+1], ref) for i in inputs)
+#			quad_channel.append(np.asarray(result))
+#			quad_channel = np.squeeze(np.asarray(quad_channel))
+#			if args.no_center_scale == True:
+#				pass
+#			else:
+#				qsd = quad_channel.std()
+#				if qsd == 0: qsd = 1
+#				qmn =  quad_channel.mean()
+#				quad_channel = (quad_channel - qmn) / qsd
+#
+#			for idx, arr in enumerate(quad_channel):
+#				f = tables.open_file(geno_pheno_df["outs"][idx], mode='a')
+#				f.root.data.append(arr.reshape(1, 4))
+#				f.close()
+#	
+#			if args.sites_file:
+#				pos_info = "{0}\t{1}\t{2}\n".format(pos, str(qc["ref_prop"]), str(qc["dp_var"]))
+#				args.sites_file.write(pos_info)
+#				args.sites_file.flush()
+#
+#			else:
+#				print(pos)
+#			space_count = 1
+#		else:
+#			space_count += 1
 
-			else:
-				print(pos)
-			space_count = 1
-		else:
-			space_count += 1
+
+
+
+#def parseread(read_str, qual_str, ref_base):
+#
+#	def base_prob(ascii, offset = 35):
+#		#ascii = ascii.replace('"','\"').replace("'","\'")
+#		return 1 - 1/np.power(10, (ord(ascii) - offset)/10)
+#   
+#	goods = ["A", "T", "G", "C", "N", "a", "t", "g", "c", "n"]
+#	nuc_dict = {"A": 0, "T": 0, "G": 0, "C":0, "N":0}
+#	i = 0
+#	q = 0
+#	while i < len(qual_str):
+#		base = read_str[i].replace(",", ref_base).replace(".", ref_base).upper()
+#		prob = base_prob(qual_str[q])
+#		if base == "^" :
+#			i += 1
+#		if base in ["+", "-"]:
+#			count = int(read_str[i+1])
+#			i += count + 1
+#		if base in goods:
+#			nuc_dict[base] += prob
+#			q += 1
+#		i += 1
+#
+#	return list(nuc_dict.values())[0:4]
+
+#def filter_sites(site_list):
+#	idxs = list(range(0, len(site_list), 3))
+#	pop_str = ""
+#	dp_list = list()
+#	for i in idxs:
+#		pop_str += site_list[i+1]
+#		dp_list.append(int(site_list[i]))
+#	ref_prop = (pop_str.count(".") + pop_str.count(",") + pop_str.count("*")) / len(pop_str)
+#	dp_var = np.array(dp_list).std()
+#	return {"ref_prop": ref_prop, "dp_var": dp_var}
+
+
