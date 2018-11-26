@@ -74,7 +74,7 @@ def raw_freq(pop_bam, dps, idx):
 def base_prob(phred, offset = 35):
 	return np.array([1 - 1/np.power(10, (ord(asci) - offset)/10) for asci in phred])
 
-def parse_seq(seq_str, qual_str, ref, prec = 3):
+def parse_seq(seq_str, qual_str, ref):
     
 	seq_str = re.sub('\^.', '', seq_str.replace(".", ref).replace(",", ref).replace("$", ""))
     
@@ -90,10 +90,10 @@ def parse_seq(seq_str, qual_str, ref, prec = 3):
 
 	qs = base_prob(qual_str, offset = 35)
 	return [
-		qs[seq_array == "A"].sum().round(prec),
-		qs[seq_array == "T"].sum().round(prec),
-		qs[seq_array == "G"].sum().round(prec),
-		qs[seq_array == "C"].sum().round(prec)
+		qs[seq_array == "A"].sum(),
+		qs[seq_array == "T"].sum(),
+		qs[seq_array == "G"].sum(),
+		qs[seq_array == "C"].sum()
 		]
 
 
@@ -128,20 +128,45 @@ else:
 space_count = 1
 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
 for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
-	
-	site_dict = parse_line(line)
-	pop_bam = site_dict["pop_bam"]
-	idx = site_dict["idx"]
-	ref = site_dict["ref"]	
-	dp_res = raw_dp(pop_bam, idx)
-	#print(dp_res)
-	if dp_res["dp_var"] >= 0:
-		freq_res = raw_freq(pop_bam, dp_res["dps"], idx)
-		#print(line.strip())
-		if (1-args.prop_variant) <= freq_res <= args.prop_variant: 
-			print(line.strip())
-			res = Parallel(n_jobs = args.num_cores)(delayed(parse_seq)(pop_bam[i+1], pop_bam[i+2], ref) for i in idx)
-			print(res)
+	if space_count >= args.distance_between_sites:
+		canal = list()
+		site_dict = parse_line(line)
+		chrom = site_dict["chrom"]
+		pos = site_dict["pos"]
+		pop_bam = site_dict["pop_bam"]
+		idx = site_dict["idx"]
+		ref = site_dict["ref"]	
+		dp_res = raw_dp(pop_bam, idx)
+		#print(dp_res)
+		if dp_res["dp_var"] >= 0:
+			freq_res = raw_freq(pop_bam, dp_res["dps"], idx)
+			#print(line.strip())
+			if (1-args.prop_variant) <= freq_res <= args.prop_variant or dp_res["dp_var"] >= args.depth_variance:
+				#print(line.strip())
+				res = Parallel(n_jobs = args.num_cores)(delayed(parse_seq)(pop_bam[i+1], pop_bam[i+2], ref) for i in idx)
+				canal.append(res)
+				canal = np.squeeze(np.asarray(canal))
+				if args.no_center_scale == True:
+					pass
+				else:
+					qsd = canal.std()
+					qmn = canal.mean()
+					canal = ((canal - qmn)/qsd).round(4)
+				for idx, arr in enumerate(canal):
+					f = tables.open_file(geno_pheno_df["outs"][idx], mode='a')
+					f.root.data.append(arr.reshape(1, 4))
+					f.close()
+				
+				pos_info = "{0}\t{1}\t{2}\t{3}\n".format(chrom, pos, str(freq_res), str(dp_res["dp_var"]))
+				if args.sites_file:
+					args.sites_file.write(pos_info)
+					args.sites_file.flush()
+				else:
+					print(pos_info)
+				count = 1
+	else:
+		count+=1
+				
 	
 		#check if propotion of reference alleles is between specified user cutoff OR variance in depth in above user cutoff
 #		if space_count >= args.distance_between_sites and ((1 -  args.prop_variant) < qc["ref_prop"] < args.prop_variant or qc["dp_var"] > args.depth_variance):
@@ -162,7 +187,7 @@ for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
 #				f = tables.open_file(geno_pheno_df["outs"][idx], mode='a')
 #				f.root.data.append(arr.reshape(1, 4))
 #				f.close()
-#	
+	
 #			if args.sites_file:
 #				pos_info = "{0}\t{1}\t{2}\n".format(pos, str(qc["ref_prop"]), str(qc["dp_var"]))
 #				args.sites_file.write(pos_info)
