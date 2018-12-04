@@ -120,9 +120,9 @@ for outs in geno_pheno_df["outs"]:
 
 #!!!!!!
 if args.positions_file:
-	cmd = "samtools mpileup -f {0} -l {1} -b bams.txt".format(args.reference, args.positions_file).split()
+	cmd = "samtools mpileup -A -f {0} -l {1} -b bams.txt".format(args.reference, args.positions_file).split()
 else:
-	cmd = "samtools mpileup -f {0} -b bams.txt".format(args.reference).split()
+	cmd = "samtools mpileup -A -f {0} -b bams.txt".format(args.reference).split()
 
 
 space_count = 1
@@ -163,9 +163,9 @@ for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
 					args.sites_file.flush()
 				else:
 					print(pos_info)
-				count = 1
+				space_count = 1
 	else:
-		count+=1
+		space_count+=1
 				
 	
 		#check if propotion of reference alleles is between specified user cutoff OR variance in depth in above user cutoff
