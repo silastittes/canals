@@ -76,7 +76,8 @@ def base_prob(phred, offset = 35):
 
 def parse_seq(seq_str, qual_str, ref):
     
-	seq_str = re.sub('\^.', '', seq_str.replace(".", ref).replace(",", ref).replace("$", ""))
+	seq_str = re.sub('\^.', '', seq_str.replace(".", ref).replace(",", ref))
+	seq_str = seq_str.replace("$", "")
     
 	broken_seq = re.split('[+-]\d+', seq_str)
     
