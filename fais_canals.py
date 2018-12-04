@@ -100,13 +100,6 @@ def parse_seq(seq_str, qual_str, ref):
 		qs[seq_array == "C"].sum()
 		]
 
-
-def multiple_replace(dict_rep, text):
-	# Create a regular expression  from the dictionary keys
-	regex = re.compile("(%s)" % "|".join(map(re.escape, dict_rep.keys())))
-	# For each match, look-up corresponding value in dictionary
-	return regex.sub(lambda mo: dict_rep[mo.string[mo.start():mo.end()]], text) 
-
 def make_canal(line, space_count):
 	if space_count >= args.distance_between_sites:
 	#generate sequence representation for each mpileup input line
@@ -147,12 +140,6 @@ def make_canal(line, space_count):
 		space_count+=1
 	return space_count
 	
-
-replacers = dict = {
-	"sorted" : "",
-	"bam" : "",
-	"." : "",
-	"/" : ""} 
 
 
 #generate H5 files to append to as mpileup is read from stdin
