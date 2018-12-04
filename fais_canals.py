@@ -67,10 +67,8 @@ def raw_dp(pop_bam, idx):
 def raw_freq(pop_bam, dps, idx):
 	read_list = [pop_bam[i+1] for i in idx]
 	read_str = ' '.join(read_list).replace("*", "")
-	#print(read_str)
 	ref_freq = (read_str.count(",") + read_str.count(".")) / np.sum(dps)
 	return ref_freq
-	#freq_test = (1 - args.ref_freq) <= ref_freq <= args.ref_freq
         
 
 
