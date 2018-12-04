@@ -20,6 +20,9 @@ parser.add_argument("-p", "--prop_variant", type = float, metavar = "prop", defa
 parser.add_argument("-d", "--depth_variance", type = float, metavar = "dp", default=0.0, 
 	            help = "Positive real value to exclude sites with little variation in base counts (less than dp).")
 
+parser.add_argument("-m", "--depth_min", type = int, default=1, 
+		    help = "Minimum total locus depth.")
+
 parser.add_argument("-s", "--distance_between_sites", type = int, metavar = "space", default=1,
                     help = "Positive integer specifying the minimum distance between variant sites to be included.")
 
@@ -104,6 +107,46 @@ def multiple_replace(dict_rep, text):
 	# For each match, look-up corresponding value in dictionary
 	return regex.sub(lambda mo: dict_rep[mo.string[mo.start():mo.end()]], text) 
 
+def make_canal(line, space_count):
+	if space_count >= args.distance_between_sites:
+	#generate sequence representation for each mpileup input line
+		canal = list()
+		site_dict = parse_line(line)
+		chrom = site_dict["chrom"]
+		pos = site_dict["pos"]
+		pop_bam = site_dict["pop_bam"]
+		idx = site_dict["idx"]
+		ref = site_dict["ref"]	
+		dp_res = raw_dp(pop_bam, idx)
+		if sum(dp_res["dps"]) > args.depth_min:
+			if dp_res["dp_var"] > 0:
+				freq_res = raw_freq(pop_bam, dp_res["dps"], idx)
+				if (1-args.prop_variant) <= freq_res <= args.prop_variant or dp_res["dp_var"] >= args.depth_variance:
+					res = Parallel(n_jobs = args.num_cores)(delayed(parse_seq)(pop_bam[i+1], pop_bam[i+2], ref) for i in idx)
+					canal.append(res)
+					canal = np.squeeze(np.asarray(canal))
+					if args.no_center_scale == True:
+						pass
+					else:
+						qsd = canal.std()
+						qmn = canal.mean()
+						canal = ((canal - qmn)/qsd).round(4)
+					for idx, arr in enumerate(canal):
+						f = tables.open_file(geno_pheno_df["outs"][idx], mode='a')
+						f.root.data.append(arr.reshape(1, 4))
+						f.close()
+					
+					pos_info = "{0}\t{1}\t{2}\t{3}\t{4}\n".format(chrom, pos, str(freq_res), str(sum(dp_res["dps"])), str(dp_res["dp_var"]))
+					if args.sites_file:
+						args.sites_file.write(pos_info)
+						args.sites_file.flush()
+					else:
+						print(pos_info)
+					space_count = 1
+	else:
+		space_count+=1
+	return space_count
+	
 
 replacers = dict = {
 	"sorted" : "",
@@ -129,114 +172,5 @@ else:
 space_count = 1
 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
 for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
-	if space_count >= args.distance_between_sites:
-		canal = list()
-		site_dict = parse_line(line)
-		chrom = site_dict["chrom"]
-		pos = site_dict["pos"]
-		pop_bam = site_dict["pop_bam"]
-		idx = site_dict["idx"]
-		ref = site_dict["ref"]	
-		dp_res = raw_dp(pop_bam, idx)
-		#print(dp_res)
-		if dp_res["dp_var"] >= 0:
-			freq_res = raw_freq(pop_bam, dp_res["dps"], idx)
-			#print(line.strip())
-			if (1-args.prop_variant) <= freq_res <= args.prop_variant or dp_res["dp_var"] >= args.depth_variance:
-				#print(line.strip())
-				res = Parallel(n_jobs = args.num_cores)(delayed(parse_seq)(pop_bam[i+1], pop_bam[i+2], ref) for i in idx)
-				canal.append(res)
-				canal = np.squeeze(np.asarray(canal))
-				if args.no_center_scale == True:
-					pass
-				else:
-					qsd = canal.std()
-					qmn = canal.mean()
-					canal = ((canal - qmn)/qsd).round(4)
-				for idx, arr in enumerate(canal):
-					f = tables.open_file(geno_pheno_df["outs"][idx], mode='a')
-					f.root.data.append(arr.reshape(1, 4))
-					f.close()
-				
-				pos_info = "{0}\t{1}\t{2}\t{3}\n".format(chrom, pos, str(freq_res), str(dp_res["dp_var"]))
-				if args.sites_file:
-					args.sites_file.write(pos_info)
-					args.sites_file.flush()
-				else:
-					print(pos_info)
-				space_count = 1
-	else:
-		space_count+=1
-				
-	
-		#check if propotion of reference alleles is between specified user cutoff OR variance in depth in above user cutoff
-#		if space_count >= args.distance_between_sites and ((1 -  args.prop_variant) < qc["ref_prop"] < args.prop_variant or qc["dp_var"] > args.depth_variance):
-#			quad_channel = list()
-#			inputs = list(range(1, len(line_list)-3, 3))
-#			result = Parallel(n_jobs = args.num_cores)(delayed(parseread)(ind_list[i], ind_list[i+1], ref) for i in inputs)
-#			quad_channel.append(np.asarray(result))
-#			quad_channel = np.squeeze(np.asarray(quad_channel))
-#			if args.no_center_scale == True:
-#				pass
-#			else:
-#				qsd = quad_channel.std()
-#				if qsd == 0: qsd = 1
-#				qmn =  quad_channel.mean()
-#				quad_channel = (quad_channel - qmn) / qsd
-#
-#			for idx, arr in enumerate(quad_channel):
-#				f = tables.open_file(geno_pheno_df["outs"][idx], mode='a')
-#				f.root.data.append(arr.reshape(1, 4))
-#				f.close()
-	
-#			if args.sites_file:
-#				pos_info = "{0}\t{1}\t{2}\n".format(pos, str(qc["ref_prop"]), str(qc["dp_var"]))
-#				args.sites_file.write(pos_info)
-#				args.sites_file.flush()
-#
-#			else:
-#				print(pos)
-#			space_count = 1
-#		else:
-#			space_count += 1
-
-
-
-
-#def parseread(read_str, qual_str, ref_base):
-#
-#	def base_prob(ascii, offset = 35):
-#		#ascii = ascii.replace('"','\"').replace("'","\'")
-#		return 1 - 1/np.power(10, (ord(ascii) - offset)/10)
-#   
-#	goods = ["A", "T", "G", "C", "N", "a", "t", "g", "c", "n"]
-#	nuc_dict = {"A": 0, "T": 0, "G": 0, "C":0, "N":0}
-#	i = 0
-#	q = 0
-#	while i < len(qual_str):
-#		base = read_str[i].replace(",", ref_base).replace(".", ref_base).upper()
-#		prob = base_prob(qual_str[q])
-#		if base == "^" :
-#			i += 1
-#		if base in ["+", "-"]:
-#			count = int(read_str[i+1])
-#			i += count + 1
-#		if base in goods:
-#			nuc_dict[base] += prob
-#			q += 1
-#		i += 1
-#
-#	return list(nuc_dict.values())[0:4]
-
-#def filter_sites(site_list):
-#	idxs = list(range(0, len(site_list), 3))
-#	pop_str = ""
-#	dp_list = list()
-#	for i in idxs:
-#		pop_str += site_list[i+1]
-#		dp_list.append(int(site_list[i]))
-#	ref_prop = (pop_str.count(".") + pop_str.count(",") + pop_str.count("*")) / len(pop_str)
-#	dp_var = np.array(dp_list).std()
-#	return {"ref_prop": ref_prop, "dp_var": dp_var}
-
+	space_count = make_canal(line, space_count)
 
