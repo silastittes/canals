@@ -38,7 +38,7 @@ parser.add_argument('-o', '--sites_file', nargs="?", type=argparse.FileType('w')
 parser.add_argument('-l', '--positions_file', type=str, 
 		    help='Optional file of reference position to pass to samtools mpileup.')
 
-parser.add_argument("reference", type=str, help="The indexed reference genome each bam was aligned to")
+parser.add_argument('-f', '--reference', type=str, help="The indexed reference genome each bam was aligned to.")
 
 parser.add_argument("pheno_geno_map", type=str, help="Data frame (where column names MUST match those following in parentheses) matching paths to bam files (bams), phenotypes (phenos), our desired H5 output file names (outs)")
 
@@ -57,28 +57,43 @@ def parse_line(pileup):
 	site_dict = {"chrom": chrom, "ref": ref, "pos": pos, "pop_bam": pop_bam, "idx":idx}
 	return site_dict
 
+
 def raw_dp(pop_bam, idx):
 	#set up indices in groups of 3
 	#process read strings
+	#print(len(idx))
 	dps =  np.array([int(pop_bam[i]) for i in idx])
 	dp_var =  dps.var()
 	return {"dp_var": dp_var, "dps": dps}
 
+
 def raw_freq(pop_bam, dps, idx):
+	nucs = ["A", "T", "G", "C"]
 	read_list = [pop_bam[i+1] for i in idx]
-	read_str = ' '.join(read_list).replace("*", "")
+	read_str = ''.join(read_list).replace("*", "").upper()
+	freqs = [read_str.count(i)/np.sum(dps) for i in nucs]
+	#print(freqs)
+	return max(freqs)
+
+
+def ref_freq(pop_bam, dps, idx):
+	read_list = [pop_bam[i+1] for i in idx]
+	read_str = ' '.join(read_list).replace("*", "").upper()
 	ref_freq = (read_str.count(",") + read_str.count(".")) / np.sum(dps)
+	#print(ref_freq)
 	return ref_freq
-        
-
-
+       
+ 
 def base_prob(phred, offset = 35):
 	return np.array([1 - 1/np.power(10, (ord(asci) - offset)/10) for asci in phred])
 
+
 def parse_seq(seq_str, qual_str, ref):
-    
+
+	nucs = ["A", "T", "G", "C"]
+ 
 	seq_str = re.sub('\^.', '', seq_str.replace(".", ref).replace(",", ref))
-	seq_str = seq_str.replace("$", "")
+	seq_str = seq_str.replace("$", "").upper()
     
 	broken_seq = re.split('[+-]\d+', seq_str)
     
@@ -91,12 +106,13 @@ def parse_seq(seq_str, qual_str, ref):
 	))
 
 	qs = base_prob(qual_str, offset = 35)
-	return [
-		qs[seq_array == "A"].sum(),
-		qs[seq_array == "T"].sum(),
-		qs[seq_array == "G"].sum(),
-		qs[seq_array == "C"].sum()
-		]
+	return [qs[seq_array == i].sum() for i in nucs]
+
+		#qs[seq_array == "A"].sum(),
+		#qs[seq_array == "T"].sum(),
+		#qs[seq_array == "G"].sum(),
+		#qs[seq_array == "C"].sum()
+		#]
 
 def make_canal(line, space_count):
 	if space_count >= args.distance_between_sites:
@@ -111,7 +127,11 @@ def make_canal(line, space_count):
 		dp_res = raw_dp(pop_bam, idx)
 		if sum(dp_res["dps"]) > args.depth_min:
 			if dp_res["dp_var"] > 0:
-				freq_res = raw_freq(pop_bam, dp_res["dps"], idx)
+				if ref in ["A", "T", "G", "C"]:
+					freq_res = ref_freq(pop_bam, dp_res["dps"], idx)
+				else:
+					freq_res = raw_freq(pop_bam, dp_res["dps"], idx)
+					
 				if (1-args.prop_variant) <= freq_res <= args.prop_variant or dp_res["dp_var"] >= args.depth_variance:
 					res = Parallel(n_jobs = args.num_cores)(delayed(parse_seq)(pop_bam[i+1], pop_bam[i+2], ref) for i in idx)
 					canal.append(res)
@@ -147,11 +167,17 @@ for outs in geno_pheno_df["outs"]:
 	array_c = f.create_earray(f.root, 'data', atom, (0, 4))
 	f.close()
 
-#!!!!!!
-if args.positions_file:
-	cmd = "samtools mpileup -A -f {0} -l {1} -b bams.txt".format(args.reference, args.positions_file).split()
+#if no reference flag is passed, run mpileup without it
+if args.reference:
+	if args.positions_file:
+		cmd = "samtools mpileup -A -f {0} -l {1} -b bams.txt".format(args.reference, args.positions_file).split()
+	else:
+		cmd = "samtools mpileup -A -f {0} -b bams.txt".format(args.reference).split()
 else:
-	cmd = "samtools mpileup -A -f {0} -b bams.txt".format(args.reference).split()
+	if args.positions_file:	
+		cmd = "samtools mpileup -A -l {0} -b bams.txt".format(args.psositions_file).split()
+	else:
+		cmd = "samtools mpileup -A -b bams.txt".format().split()
 
 
 space_count = 1
